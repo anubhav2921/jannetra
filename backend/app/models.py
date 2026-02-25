@@ -1,0 +1,156 @@
+import uuid
+from datetime import datetime
+from sqlalchemy import (
+    Column, String, Text, Float, Boolean, DateTime, ForeignKey, Enum, JSON
+)
+from sqlalchemy.orm import relationship
+from app.database import Base
+
+
+def gen_uuid():
+    return str(uuid.uuid4())
+
+
+class Source(Base):
+    __tablename__ = "sources"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    name = Column(String(200), nullable=False)
+    source_type = Column(
+        Enum("SOCIAL_MEDIA", "NEWS", "COMPLAINT", name="source_type_enum"),
+        nullable=False,
+    )
+    domain = Column(String(255))
+    credibility_tier = Column(
+        Enum("VERIFIED", "UNKNOWN", "FLAGGED", name="credibility_enum"),
+        default="UNKNOWN",
+    )
+    historical_accuracy = Column(Float, default=0.5)
+    last_audited_at = Column(DateTime, default=datetime.utcnow)
+
+    articles = relationship("Article", back_populates="source")
+
+
+class Article(Base):
+    __tablename__ = "articles"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    source_id = Column(String, ForeignKey("sources.id"), nullable=False)
+    title = Column(String(500), nullable=False)
+    raw_text = Column(Text, nullable=False)
+    language = Column(String(10), default="en")
+    content_hash = Column(String(64), unique=True)
+    location = Column(String(200))
+    category = Column(String(100))
+    ingested_at = Column(DateTime, default=datetime.utcnow)
+
+    source = relationship("Source", back_populates="articles")
+    detection_result = relationship("DetectionResult", back_populates="article", uselist=False)
+    gri_score = relationship("GovernanceRiskScore", back_populates="article", uselist=False)
+    sentiment = relationship("SentimentRecord", back_populates="article", uselist=False)
+    alerts = relationship("Alert", back_populates="article")
+
+
+class DetectionResult(Base):
+    __tablename__ = "detection_results"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    article_id = Column(String, ForeignKey("articles.id"), nullable=False)
+    confidence_score = Column(Float, default=0.0)
+    label = Column(
+        Enum("REAL", "FAKE", "UNCERTAIN", name="detection_label_enum"),
+        default="UNCERTAIN",
+    )
+    features_json = Column(JSON, default=dict)
+    evaluated_at = Column(DateTime, default=datetime.utcnow)
+
+    article = relationship("Article", back_populates="detection_result")
+
+
+class GovernanceRiskScore(Base):
+    __tablename__ = "governance_risk_scores"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    article_id = Column(String, ForeignKey("articles.id"), nullable=False)
+    gri_score = Column(Float, default=0.0)
+    component_scores = Column(JSON, default=dict)
+    risk_level = Column(
+        Enum("LOW", "MODERATE", "HIGH", name="risk_level_enum"),
+        default="LOW",
+    )
+    computed_at = Column(DateTime, default=datetime.utcnow)
+
+    article = relationship("Article", back_populates="gri_score")
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    article_id = Column(String, ForeignKey("articles.id"), nullable=False)
+    severity = Column(
+        Enum("LOW", "MEDIUM", "HIGH", "CRITICAL", name="severity_enum"),
+        default="MEDIUM",
+    )
+    department = Column(String(200))
+    recommendation = Column(Text)
+    urgency = Column(String(50))
+    response_strategy = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    article = relationship("Article", back_populates="alerts")
+
+
+class SentimentRecord(Base):
+    __tablename__ = "sentiment_records"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    article_id = Column(String, ForeignKey("articles.id"), nullable=False)
+    polarity = Column(Float, default=0.0)
+    subjectivity = Column(Float, default=0.0)
+    anger_rating = Column(Float, default=0.0)
+    sentiment_label = Column(
+        Enum("POSITIVE", "NEUTRAL", "NEGATIVE", name="sentiment_label_enum"),
+        default="NEUTRAL",
+    )
+    analyzed_at = Column(DateTime, default=datetime.utcnow)
+
+    article = relationship("Article", back_populates="sentiment")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    name = Column(String(200), nullable=False)
+    email = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(
+        Enum("LEADER", "ADMIN", "ANALYST", name="user_role_enum"),
+        default="LEADER",
+    )
+    department = Column(String(200))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Resolution(Base):
+    __tablename__ = "resolutions"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    alert_id = Column(String, ForeignKey("alerts.id"), nullable=True)
+    resolved_by = Column(String, ForeignKey("users.id"), nullable=False)
+    title = Column(String(500), nullable=False)
+    category = Column(String(100))
+    location = Column(String(200))
+    problem_description = Column(Text, nullable=False)
+    action_taken = Column(Text, nullable=False)
+    resources_used = Column(Text)
+    people_benefited = Column(String(100))
+    status = Column(
+        Enum("RESOLVED", "IN_PROGRESS", "PARTIALLY_RESOLVED", name="resolution_status_enum"),
+        default="RESOLVED",
+    )
+    resolved_at = Column(DateTime, default=datetime.utcnow)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
